@@ -3,8 +3,8 @@
 function onOpen() {
   var ui = SpreadsheetApp.getUi();
   //var ui = SpreadsheetApp.getUi();
-  ui.createMenu('GitHub parser')
-      .addItem('Get report','showReport')
+  ui.createMenu('Report')
+  .addItem('Get report','showReport')
   .addSeparator()
   .addItem('Set CLIENT_ID/SECRET', 'uiStoreCredentials')
   .addItem('Get authorization URL', 'getAuthorizationURL')
@@ -18,9 +18,14 @@ function getSourceData(){
   var ss = SpreadsheetApp.openById('1Wdsni4ctdZyTjGbQuRL2dMQIYkd-DTJHU0_Qp5qxB9U');
   var sheet = ss.getSheetByName('Data');
   var data = sheet.getRange(2, 2, 10).getValues(); // 9 rows contain data
+  //Logger.log(Session.getScriptTimeZone());
+  // Logger.log(data[6][0]);
+  // Logger.log(Date.parse(data[6][0]));
+  // Logger.log(new Date(Date.parse(data[6][0])));
+  // Logger.log(Utilities.formatDate(new Date(Date.parse(data[6][0])), "GMT+02:00", "yyyy-MM-dd'T'HH:mm:ss'Z'"));
   return {'repo':data[0][0],'filter':data[1][0],'state':data[2][0],
           'labels':data[3][0],'sort':data[4][0],'direction':data[5][0],
-          'target_date':Utilities.formatDate(new Date(Date.parse(data[6][0])), "GMT", "yyyy-MM-dd'T'HH:mm:ss'Z'"),
+          'target_date':Utilities.formatDate(new Date(Date.parse(data[6][0])), "GMT+02:00", "yyyy-MM-dd'T'HH:mm:ss'Z'"),
           'period':data[7][0],'interval':data[8][0],
           'excludeLabels':data[9][0]};
 }
@@ -33,7 +38,8 @@ function getIssueStatistics(){
   closedFilter = 'closed_at';
   var interval = data.interval * 86400000; //days * ms/per day
   var startDate = targetDateMs - data.period * 86400000; //1 day lasts 86400000 ms
-  var endDate = targetDateMs + data.period * 86400000;
+//  var endDate = targetDateMs + data.period * 86400000;
+  var endDate = targetDateMs;
   var repo = data.repo;
   var filter = data.filter;
   var state = data.state;
@@ -47,9 +53,10 @@ function getIssueStatistics(){
   var result = [];
   var cumulative_created = 0,
   cumulative_closed = 0;
-  Logger.log('Start searching for period.........' + (endDate - startDate)/interval + ' iterations');
-  // created_at
-  for (var x = startDate; x < endDate; x += interval){
+  // Logger.log('Start searching for period.........' + (endDate - startDate)/interval + ' iterations');
+  // 
+  
+  for (var x = startDate; x <= endDate; x += interval){
     var created = Object.keys(getIssuesForPeriod(ih, x, interval, createdFilter)).length;
     var closed = Object.keys(getIssuesForPeriod(ih, x, interval, closedFilter)).length;
     cumulative_created += created;
@@ -65,12 +72,16 @@ function getIssuesForPeriod(issueHolder, startMs, interval, field){
   var issues = issueHolder.getIssues();
   var startDate = Utilities.formatDate(new Date(startMs), "GMT", "yyyy-MM-dd'T'HH:mm:ss'Z'");
   var endDate = Utilities.formatDate(new Date(startMs + interval), "GMT", "yyyy-MM-dd'T'HH:mm:ss'Z'");
-  Logger.log('Getting ' + field + ' for period ..........' + startDate + '...' + endDate);
+  // Logger.log('Getting ' + field + ' for period ..........' + startDate + '...' + endDate);
   for (var x=0;x<Object.keys(issues).length;x++){
-    if (issues[x][field] >= startDate && issues[x][field] <= endDate){
+    if (issues[x][field]){
+      // Logger.log(x + ') Considering issue '+ field +' : ' + issues[x][field] + ' Url: ' + issues[x]['html_url']);
+      if (issues[x][field] >= startDate && issues[x][field] < endDate){
+      // Logger.log('Satisfied: ' + issues[x][field]);
       response.push(issues[x]);
-      Logger.log(issues[x]['html_url']);
-    }  
+      // Logger.log(issues[x]['html_url']);
+    }
+  }
   }
   return response;
 }
@@ -94,13 +105,13 @@ function getIssues(repo, filter, excludeLabels){
     var pagination = {'next':url}; //prepare the initial request
     var response,
     rspHeaders;
-    Logger.log('---------- START Pagination -------------------')
+    // Logger.log('---------- START Pagination -------------------')
     do {
-    Logger.log(pagination.next);
+    // Logger.log(pagination.next);
     response = UrlFetchApp.fetch(pagination.next,options);
     pagination = {}; //Clean up pagination object
     issues = mergeTheseObjects(issues, excludeIssuesByLabel(getIssuesOnly(JSON.parse(response.getContentText())), excludeLabels));
-      Logger.log('I\'ve got ' + Object.keys(issues).length);
+      // Logger.log('I\'ve got ' + Object.keys(issues).length);
     rspHeaders = response.getHeaders();
     //Loop through GitHub pagination
     if (rspHeaders.Link){
@@ -115,15 +126,15 @@ function getIssues(repo, filter, excludeLabels){
         pagination[m[2]] = m[1];
       }
     }else{
-      Logger.log('ERROR: No headers in response. Link ' + rspHeaders.Link);
+      // Logger.log('ERROR: No headers in response. Link ' + rspHeaders.Link);
     }
   } while (pagination.next);
 
-    Logger.log('getIssues() found: ' + Object.keys(issues).length + ' records.' );
+    // Logger.log('getIssues() found: ' + Object.keys(issues).length + ' records.' );
     return issues;
     
   }else{
-    Logger.log('Error: getIssues() - App script has no access');
+    // Logger.log('Error: getIssues() - App script has no access');
     // goto url to get authorized by github
     var authorizationUrl = service.getAuthorizationUrl();
     Logger.log("Open the following URL and re-run the script: %s", authorizationUrl);
@@ -168,36 +179,38 @@ function sortIssues(issues, field){
     }
     left++;
   }
-  Logger.log('Object has been sorted by ...' + field);
+  // Logger.log('Object has been sorted by ...' + field);
   return issues;
 }
 
 function populateIssueHolder(repo,filter,state,labels,sort,direction,since,excludeLabels) {
   var ih = new IssueHolder('eclipse/che');
   var issues = ih.getGHissues(filter,state,labels,sort,direction,since,excludeLabels);
-  Logger.log('IssuesHolder is populated.');
+  // Logger.log('IssuesHolder is populated.');
   return ih;
 }
 
-function excludeIssuesByLabel(input, excludeLabel){
-  var cleaned = [], flag = true;
-  var inpLength = Object.keys(input).length;
-  for (var x=0;x<Object.keys(input).length;x++){
-    
-    input[x].labels.forEach(function(label){
-    
+function excludeIssuesByLabel(issues, excludeLabel){
+  var cleaned = [], flag;
+  var inpLength = Object.keys(issues).length;
+  //Logger.log('Total issues before cleanup: ' + inpLength);
+  for (var x=0;x<inpLength;x++){
+    flag = true;
+    issues[x].labels.forEach(function(label){
+      //Logger.log('Label: ' + label.name);
       if (label.name === excludeLabel){
+        //Logger.log('====== Exclude Label found: ' + label.name);
         flag = false;
       return;
-      
     }
-    })
+    });
     if (flag){
-      cleaned.push(input[x]);
-      flag = true;
+      cleaned.push(issues[x]);
+      //Logger.log('Push data');
     }
   }
-  Logger.log('Excluded with label: ' + excludeLabel + ' : ' + (inpLength - Object.keys(cleaned).length));
+  //Logger.log('Cleaned list contains: ' + Object.keys(cleaned).length);
+  // Logger.log('Excluded with label: ' + excludeLabel + ' : ' + (inpLength - Object.keys(cleaned).length));
   return cleaned;
 }
 
@@ -211,19 +224,8 @@ function getIssuesOnly(input){
       issuesOnly.push(input[x]);
       }
     }
-  Logger.log('Removed: ' + (inpLength - Object.keys(issuesOnly).length) + ' PRs');
+  // Logger.log('Removed: ' + (inpLength - Object.keys(issuesOnly).length) + ' PRs');
   return issuesOnly;
-}
-
-// This used for combining results from pagination in getIssues()
-function mergeTheseObjects(acceptor, donor){
-  
-  var iAcc = Object.keys(acceptor).length;
-  var iDon = Object.keys(donor).length;
-  for (x=0;x<iDon;x++){
-    acceptor[iAcc+x] = donor[x];
-  }
-  return acceptor;
 }
 
 function sortIssues(issues, field){
@@ -252,7 +254,7 @@ function sortIssues(issues, field){
     }
     left++;
   }
-  Logger.log('Object has been sorted by ...' + field);
+  // Logger.log('Object has been sorted by ...' + field);
   return issues;
 }
 
@@ -329,22 +331,22 @@ function showReport() {
   if (!(reportSheet = ss.getSheetByName(data.target_date))){
   reportSheet = ss.insertSheet(data.target_date);
 }
-  Logger.log('Report sheet is: +++++++++++++++++ ' + reportSheet.getName());
+  // Logger.log('Report sheet is: +++++++++++++++++ ' + reportSheet.getName());
   reportSheet.clear().activate();
   var header = reportSheet.getRange(1, 1, 2, 5);
   header.setValues([['Report created for target Date: ' + data.target_date,'','','',''],['Date','Created','Closed','Cumulative created','Cumulative closed']]).setBackground('gray').setFontSize(12);
   reportSheet.autoResizeColumns(1, 5);
   var result = getIssueStatistics();
   //show results
-  Logger.log('reportToSpreadSheet: results: ' + Object.keys(result).length);
+  // Logger.log('reportToSpreadSheet: results: ' + Object.keys(result).length);
   if (Object.keys(result).length>0){
     var rng = reportSheet.getRange(3, 1, Object.keys(result).length, 5);
     var data = [];
     for (x=0;x<Object.keys(result).length;x++){
       data.push([result[x]['date'],result[x]['created'],result[x]['closed'],result[x]['cumulative_created'],result[x]['cumulative_closed']]);
-      Logger.log(result[x]['date']);
-      Logger.log('For period starts from date: ' + result[x]['created'] + '/' + result[x]['closed']);
-      Logger.log('Cumulative: ' + result[x]['cumulative_created'] + '/' + result[x]['cumulative_closed']);
+      // Logger.log(result[x]['date']);
+      // Logger.log('For period starts from date: ' + result[x]['created'] + '/' + result[x]['closed']);
+      // Logger.log('Cumulative: ' + result[x]['cumulative_created'] + '/' + result[x]['cumulative_closed']);
     }
     rng.setValues(data);
   }
